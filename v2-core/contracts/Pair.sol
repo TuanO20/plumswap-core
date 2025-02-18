@@ -1,14 +1,22 @@
 pragma solidity 0.8.28;
 
-import "./libraries/Math.sol";
-import "./libraries/UQ112x112.sol";
+// import "./libraries/Math.sol";
+// import "./libraries/UQ112x112.sol";
 
-import "./ERC20.sol";
+// import "./ERC20.sol";
 
-import "./interfaces/IUniswapV2Pair.sol";
-import "./interfaces/IERC20.sol";
-import "./interfaces/IUniswapV2Factory.sol";
-import "./interfaces/IUniswapV2Callee.sol";
+// import "./interfaces/IUniswapV2Pair.sol";
+// import "./interfaces/IERC20.sol";
+// import "./interfaces/IUniswapV2Factory.sol";
+// import "./interfaces/IUniswapV2Callee.sol";
+
+import {IUniswapV2Pair} from "./interfaces/IUniswapV2Pair.sol";
+import {ERC20} from "./ERC20.sol";
+import {Math} from "./libraries/Math.sol";
+import {UQ112x112} from "./libraries/UQ112x112.sol";
+import {IERC20} from "./interfaces/IERC20.sol";
+import {IUniswapV2Factory} from "./interfaces/IUniswapV2Factory.sol";
+import {IUniswapV2Callee} from "./interfaces/IUniswapV2Callee.sol";
 
 
 contract Pair is IUniswapV2Pair, ERC20 {
@@ -32,7 +40,7 @@ contract Pair is IUniswapV2Pair, ERC20 {
 
     // Prevent reentrancy attacks
     uint private unlocked = 1;
-    modifier Lock() {
+    modifier lock() {
         require(unlocked == 1, "UniswapV2: LOCKED");
         unlocked = 0;
         _;
@@ -67,10 +75,28 @@ contract Pair is IUniswapV2Pair, ERC20 {
         _blockTimestampLast = blockTimestampLast;
     }
 
-    //function _update()
+    function _update(uint balance0, uint balance1, uint112 _reserve0, uint112 _reserve1) private {
+        // Maximum token balnce is 2^112 - 1
+        require(balance0 <= type(uint112).max && balance1 <= type(uint112).max, "UniswapV2: OVERFLOW");
+        uint32 blockTimestamp = uint32(block.timestamp % 2**32);
+        uint32 timeElapsed = blockTimestamp - blockTimestampLast;
+
+        // Update accumulative price for token0 and token1
+        if (timeElapsed > 0 && _reserve0 > 0 && _reserve1 > 0 ) {
+            price0CumulativeLast += uint(UQ112x112.encode(_reserve1).uqdiv(_reserve0) * timeElapsed);
+            price1CumulativeLast += uint(UQ112x112.encode(_reserve0).uqdiv(_reserve1) * timeElapsed);
+        }
+
+        // Update reserve0, reserve1, and blockTimestampLast
+        reserve0 = uint112(balance0);
+        reserve1 = uint112(balance1);
+        blockTimestampLast = blockTimestamp;
+        emit Sync(reserve0, reserve1);
+    }
 
 
     // Calculate the amount of LP tokens to mint more for the feeTo address (Uniswap V2 protocol)
+    // Read the equation in whitepaper 2.4 Protocol fee (s_m = \frac{\sqrt(k_2) - \sqrt(k_1)}{5 * \sqrt(k_2) + \sqrt(k_1)} * s_1)
     function _mintFee(uint112 _reserve0, uint112 _reserve1) private returns (bool feeOn) {
         address feeTo = IUniswapV2Factory(factory).feeTo();
         feeOn = feeTo != address(0);
@@ -82,7 +108,7 @@ contract Pair is IUniswapV2Pair, ERC20 {
                 uint rootKLast = Math.sqrt(_kLast);
 
                 uint numerator = (rootK - rootKLast) * totalSupply;
-                uint denominator = 5*rootK + rootLast;
+                uint denominator = 5*rootK + rootKLast;
                 uint LPTokenMintedMore = numerator / denominator;
 
                 if (LPTokenMintedMore > 0) 
@@ -94,9 +120,45 @@ contract Pair is IUniswapV2Pair, ERC20 {
     }
 
     
+    function mint(address to) external lock returns (uint liquidity) {
+        (uint112 _reserve0, uint112 _reserve1, ) = getReserves();
+        uint balance0 = IERC20(token0).balanceOf(address(this));
+        uint balance1 = IERC20(token1).balanceOf(address(this));
+
+        // Calculate the amount of token0 and token1 to be added to the pool
+        uint amount0 = balance0 - _reserve0;
+        uint amount1 = balance1 - _reserve1;
+
+
+        // Call _mintFee function when users deposit or withdraw the liquidity because it changes the ratio of token0 
+        bool feeOn = _mintFee(_reserve0, _reserve1);
+        uint _totalSupply = totalSupply;
+
+        // Check if there are any liquidity tokens
+        if (_totalSupply == 0) {
+            // The first deposit => s_minted = \sqrt{amount0 * amount1} - MINIMUM_LIQUIDITY
+            liquidity = Math.sqrt(amount0 * amount1) - MINIMUM_LIQUIDITY;
+            _mint(address(0), MINIMUM_LIQUIDITY);
+        }
+        else {
+            // The second deposit => s_minted = The min of \frac{amount0 * s_totalSupply}{_reserve0} or \frac{amount1 * s_totalSupply}{_reserve1}
+            // Encourage users to deposit the correct ratio of token0 and token1
+            liquidity = Math.min(amount0 * _totalSupply / _reserve0, amount1 * _totalSupply / _reserve1);
+        }
+
+        // Mint the liquidity token to liquidity provider
+        require(liquidity > 0, "UniswapV2: INSUFFICIENT_LIQUIDITY_MINTED");
+        _mint(to, liquidity);
+        emit Mint(msg.sender, amount0, amount1);
+        
+        // Update reserve0, reserve1, kLast
+        _update(balance0, balance1, _reserve0, _reserve1);
+        if (feeOn) kLast = reserve0 * reserve1;
+    }
     
 
     
 
 
 }
+
