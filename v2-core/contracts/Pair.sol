@@ -75,6 +75,7 @@ contract Pair is IUniswapV2Pair, ERC20 {
         _blockTimestampLast = blockTimestampLast;
     }
 
+    // Sync the reserve with the balance of token0 and token1
     function _update(uint balance0, uint balance1, uint112 _reserve0, uint112 _reserve1) private {
         // Maximum token balnce is 2^112 - 1
         require(balance0 <= type(uint112).max && balance1 <= type(uint112).max, "UniswapV2: OVERFLOW");
@@ -119,7 +120,7 @@ contract Pair is IUniswapV2Pair, ERC20 {
             kLast = 0;
     }
 
-    
+    // Call when users deposit the liquidity
     function mint(address to) external lock returns (uint liquidity) {
         (uint112 _reserve0, uint112 _reserve1, ) = getReserves();
         uint balance0 = IERC20(token0).balanceOf(address(this));
@@ -156,9 +157,91 @@ contract Pair is IUniswapV2Pair, ERC20 {
         if (feeOn) kLast = reserve0 * reserve1;
     }
     
+    // Call when users withdraw the liquidity
+    function burn(address to) external lock returns (uint amount0, uint amount1) {
+        (uint112 _reserve0, uint112 _reserve1, ) = getReserves();
+        address _token0 = token0;
+        address _token1 = token1;
 
+        // Get the balance of token0 and token1 before burning LP tokens
+        uint balance0 = IERC20(_token0).balanceOf(address(this));
+        uint balance1 = IERC20(_token1).balanceOf(address(this));
+
+        // Call _mintFee function when users deposit or withdraw the liquidity because it changes the ratio of token0 
+        bool feeOn = _mintFee(_reserve0, _reserve1);
+        uint _totalSupply = totalSupply;
+        uint liquidity = balanceOf[address(this)];
+
+        // Calculate the amount of token0 and token1 based on the ratio of the liquidity token with the totalSupply
+        amount0 = liquidity * balance0 / _totalSupply;
+        amount1 = liquidity * balance1 / _totalSupply;
+        require(amount0 > 0 && amount1 > 0, "UniswapV2: INSUFFICIENT_LIQUIDITY_BURNED");
+
+        // Burn the liquidity token
+        _burn(address(this), liquidity);
+
+        // Transfer the token0 and token1 to the recipient
+        _safeTransfer(_token0, to, amount0);
+        _safeTransfer(_token1, to, amount1);
+
+        // Update the balance of token0 and token1 after burning LP tokens
+        balance0 = IERC20(_token0).balanceOf(address(this));
+        balance1 = IERC20(_token1).balanceOf(address(this));
+
+        _update(balance0, balance1, _reserve0, _reserve1);
+        if (feeOn) kLast = reserve0 * reserve1;
+
+        emit Burn(msg.sender, amount0, amount1, to);
+    }
     
+    function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data) external lock {
+        (uint112 _reserve0, uint112 _reserve1, ) = getReserves();
+        address _token0 = token0;
+        address _token1 = token1;
 
+        require(amount0Out > 0 || amount1Out > 0, "UniswapV2: INSUFFICIENT_OUTPUT_AMOUNT");
+        require(amount0Out < _reserve0 && amount1Out < _reserve1, "UniswapV2: INSUFFICIENT_LIQUIDITY");
+        require(to != _token0 && to != _token1, "UniswapV2: INVALID_TO");
+        
+
+        if (amount0Out > 0) _safeTransfer(_token0, to, amount0Out);
+        if (amount1Out > 0) _safeTransfer(_token1, to, amount1Out);
+
+        // Part of the flash swap mechanism
+        if (data.length > 0) IUniswapV2Callee(to).uniswapV2Call(msg.sender, amount0Out, amount1Out, data); 
+
+        uint balance0 = IERC20(_token0).balanceOf(address(this));
+        uint balance1 = IERC20(_token1).balanceOf(address(this));
+
+
+        uint amount0In = balance0 > (_reserve0 - amount0Out) ? balance0 - (_reserve0 - amount0Out) : 0;
+        uint amount1In = balance1 > (_reserve1 - amount1Out) ? balance1 - (_reserve1 - amount1Out) : 0;
+        require(amount0In > 0 || amount1In > 0, "UniswapV2: INSUFFICIENT_INPUT_AMOUNT");
+
+        uint balance0Adjusted = balance0 * 1000 - amount0In * 3;
+        uint balance1Adjusted = balance1 * 1000 - amount1In * 3;
+
+        require(balance0Adjusted * balance1Adjusted >= uint(_reserve0 * _reserve1 * (1000**2)), "UniswapV2: K");
+
+
+        _update(balance0, balance1, _reserve0, _reserve1);
+        emit Swap(msg.sender, amount0In, amount1In, amount0Out, amount1Out, to);
+    }
+
+    // Allow users to Withdraw the excess tokens 
+    function skim(address to) external lock {
+        address _token0 = token0;
+        address _token1 = token1;
+
+        _safeTransfer(_token0, to, IERC20(_token0).balanceOf(address(this)) - reserve0);
+        _safeTransfer(_token1, to, IERC20(_token1).balanceOf(address(this)) - reserve1);
+
+    }
+
+    // External function to update the balance and reserve <=> _update() function (private function)
+    function sync() external lock {
+        _update(IERC20(token0).balanceOf(address(this)), IERC20(token1).balanceOf(address(this)), reserve0, reserve1);
+    }
 
 }
 
