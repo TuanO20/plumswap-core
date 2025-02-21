@@ -1,22 +1,15 @@
+// SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-// import "./libraries/Math.sol";
-// import "./libraries/UQ112x112.sol";
+import "./libraries/Math.sol";
+import "./libraries/UQ112x112.sol";
 
-// import "./ERC20.sol";
+import "./ERC20.sol";
 
-// import "./interfaces/IUniswapV2Pair.sol";
-// import "./interfaces/IERC20.sol";
-// import "./interfaces/IUniswapV2Factory.sol";
-// import "./interfaces/IUniswapV2Callee.sol";
-
-import {IUniswapV2Pair} from "./interfaces/IUniswapV2Pair.sol";
-import {ERC20} from "./ERC20.sol";
-import {Math} from "./libraries/Math.sol";
-import {UQ112x112} from "./libraries/UQ112x112.sol";
-import {IERC20} from "./interfaces/IERC20.sol";
-import {IUniswapV2Factory} from "./interfaces/IUniswapV2Factory.sol";
-import {IUniswapV2Callee} from "./interfaces/IUniswapV2Callee.sol";
+import "./interfaces/IUniswapV2Pair.sol";
+import "./interfaces/IERC20.sol";
+import "./interfaces/IUniswapV2Factory.sol";
+import "./interfaces/IUniswapV2Callee.sol";
 
 
 contract Pair is IUniswapV2Pair, ERC20 {
@@ -52,7 +45,7 @@ contract Pair is IUniswapV2Pair, ERC20 {
     }
 
     // Called only once by the factory at time of deployment
-    function initialize(address _token0, address _token1) external {
+    function initialize(address _token0, address _token1) external override {
         require(msg.sender == factory, "UniswapV2: FORBIDDEN");
 
         token0 = _token0;
@@ -69,7 +62,7 @@ contract Pair is IUniswapV2Pair, ERC20 {
         require(success && (data.length == 0 || abi.decode(data, (bool))), "UniswapV2: TRANSFER_FAILED");
     }
 
-    function getReserves() public view returns (uint112 _reserve0, uint112 _reserve1, uint32 _blockTimestampLast) {
+    function getReserves() public override view returns (uint112 _reserve0, uint112 _reserve1, uint32 _blockTimestampLast) {
         _reserve0 = reserve0;
         _reserve1 = reserve1;
         _blockTimestampLast = blockTimestampLast;
@@ -121,7 +114,7 @@ contract Pair is IUniswapV2Pair, ERC20 {
     }
 
     // Call when users deposit the liquidity
-    function mint(address to) external lock returns (uint liquidity) {
+    function mint(address to) external override lock returns (uint liquidity) {
         (uint112 _reserve0, uint112 _reserve1, ) = getReserves();
         uint balance0 = IERC20(token0).balanceOf(address(this));
         uint balance1 = IERC20(token1).balanceOf(address(this));
@@ -158,7 +151,7 @@ contract Pair is IUniswapV2Pair, ERC20 {
     }
     
     // Call when users withdraw the liquidity
-    function burn(address to) external lock returns (uint amount0, uint amount1) {
+    function burn(address to) external override lock returns (uint amount0, uint amount1) {
         (uint112 _reserve0, uint112 _reserve1, ) = getReserves();
         address _token0 = token0;
         address _token1 = token1;
@@ -194,7 +187,7 @@ contract Pair is IUniswapV2Pair, ERC20 {
         emit Burn(msg.sender, amount0, amount1, to);
     }
     
-    function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data) external lock {
+    function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data) external override lock {
         (uint112 _reserve0, uint112 _reserve1, ) = getReserves();
         address _token0 = token0;
         address _token1 = token1;
@@ -229,7 +222,7 @@ contract Pair is IUniswapV2Pair, ERC20 {
     }
 
     // Allow users to Withdraw the excess tokens 
-    function skim(address to) external lock {
+    function skim(address to) external override lock {
         address _token0 = token0;
         address _token1 = token1;
 
@@ -239,9 +232,10 @@ contract Pair is IUniswapV2Pair, ERC20 {
     }
 
     // External function to update the balance and reserve <=> _update() function (private function)
-    function sync() external lock {
+    function sync() external override lock {
         _update(IERC20(token0).balanceOf(address(this)), IERC20(token1).balanceOf(address(this)), reserve0, reserve1);
     }
 
 }
+
 
