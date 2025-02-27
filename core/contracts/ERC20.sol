@@ -55,6 +55,8 @@ contract ERC20 is IUniswapV2ERC20 {
 
 
     // Public and external functions
+
+    // Authorize the amount of token for the third party
     function approve(address spender, uint value) external returns (bool) {
         _approve(msg.sender, spender, value);
         return true;
