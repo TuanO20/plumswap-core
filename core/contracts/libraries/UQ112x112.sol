@@ -5,6 +5,7 @@ pragma solidity 0.8.28;
 
 // range: [0, 2**112 - 1]
 // resolution: 1 / 2**112
+// UQ112x112 -> First 112 bits -> Integer part, Last 112 bits -> Fraction part
 
 library UQ112x112 {
     uint224 constant Q112 = 2**112;

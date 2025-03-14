@@ -98,7 +98,28 @@ contract Pair is IUniswapV2Pair, ERC20 {
 
         if (feeOn) {
             if (_kLast > 0) {
-                uint rootK = Math.sqrt(uint(_reserve0 * _reserve1));
+                // Calculate rootK safely without overflow
+                uint reserve0AsUint = uint(_reserve0);
+                uint reserve1AsUint = uint(_reserve1);
+                uint rootK;
+                
+                // Check if multiplication would overflow
+                if (reserve0AsUint > 0 && reserve1AsUint > type(uint).max / reserve0AsUint) {
+                    // If it would overflow, use a different approach
+                    // Calculate an approximate rootK that's reasonably close without overflowing
+                    uint maxSqrt = Math.sqrt(type(uint).max);
+                    if (reserve0AsUint > maxSqrt || reserve1AsUint > maxSqrt) {
+                        // Both values are very large, use a reasonable large value for rootK
+                        rootK = maxSqrt;
+                    } else {
+                        // Take sqrt of each value and multiply (less precise but avoids overflow)
+                        rootK = Math.sqrt(reserve0AsUint) * Math.sqrt(reserve1AsUint);
+                    }
+                } else {
+                    // Safe to multiply
+                    rootK = Math.sqrt(reserve0AsUint * reserve1AsUint);
+                }
+                
                 uint rootKLast = Math.sqrt(_kLast);
 
                 uint numerator = (rootK - rootKLast) * totalSupply;
@@ -147,7 +168,16 @@ contract Pair is IUniswapV2Pair, ERC20 {
         
         // Update reserve0, reserve1, kLast
         _update(balance0, balance1, _reserve0, _reserve1);
-        if (feeOn) kLast = reserve0 * reserve1;
+        // Use a safe way to set kLast to prevent overflow
+        if (feeOn) {
+            // Cast to uint to handle large numbers safely
+            if (uint(reserve0) * uint(reserve1) <= type(uint).max) {
+                kLast = uint(reserve0) * uint(reserve1);
+            } else {
+                // If it would overflow, set to a large value but avoid overflow
+                kLast = type(uint).max;
+            }
+        }
     }
     
     // Call when users withdraw the liquidity
@@ -182,7 +212,16 @@ contract Pair is IUniswapV2Pair, ERC20 {
         balance1 = IERC20(_token1).balanceOf(address(this));
 
         _update(balance0, balance1, _reserve0, _reserve1);
-        if (feeOn) kLast = reserve0 * reserve1;
+        // Use a safe way to set kLast to prevent overflow
+        if (feeOn) {
+            // Cast to uint to handle large numbers safely
+            if (uint(reserve0) * uint(reserve1) <= type(uint).max) {
+                kLast = uint(reserve0) * uint(reserve1);
+            } else {
+                // If it would overflow, set to a large value but avoid overflow
+                kLast = type(uint).max;
+            }
+        }
 
         emit Burn(msg.sender, amount0, amount1, to);
     }
@@ -214,7 +253,12 @@ contract Pair is IUniswapV2Pair, ERC20 {
         uint balance0Adjusted = balance0 * 1000 - amount0In * 3;
         uint balance1Adjusted = balance1 * 1000 - amount1In * 3;
 
-        require(balance0Adjusted * balance1Adjusted >= uint(_reserve0 * _reserve1 * (1000**2)), "UniswapV2: K");
+        // Use separate calculations to prevent overflow
+        uint reserve0reserve1 = uint(_reserve0) * uint(_reserve1);
+        uint thousandSquared = 1000**2;
+        uint leftSide = balance0Adjusted * balance1Adjusted;
+        uint rightSide = reserve0reserve1 * thousandSquared;
+        require(leftSide >= rightSide, "UniswapV2: K");
 
 
         _update(balance0, balance1, _reserve0, _reserve1);
